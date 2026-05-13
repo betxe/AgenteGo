@@ -1,0 +1,41 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        if: github.event_name != 'workflow_dispatch'
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: p/golang
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Build for Windows
+        run: |
+          GOOS=windows GOARCH=amd64 go build -o SuscriberRabbitMQ.exe SuscriberRabbitMQ.go
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Release build-${{ github.run_number }}
+          files: SuscriberRabbitMQ.exe
+          generate_release_notes: true
