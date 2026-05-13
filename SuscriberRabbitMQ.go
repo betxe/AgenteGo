@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hamba/avro/v2"
 	"github.com/rabbitmq/amqp091-go"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
@@ -20,11 +20,33 @@ import (
 )
 
 type Metrics struct {
-	Timestamp   int64    `json:"timestamp"`
-	CPUPercent  float64  `json:"cpu_percent"`
-	RAMPercent  float64  `json:"ram_percent"`
-	DiskPercent float64  `json:"disk_percent"`
-	Temp        *float64 `json:"temp_c"`
+	Timestamp   int64    `json:"timestamp" avro:"timestamp"`
+	CPUPercent  float64  `json:"cpu_percent" avro:"cpu_percent"`
+	RAMPercent  float64  `json:"ram_percent" avro:"ram_percent"`
+	DiskPercent float64  `json:"disk_percent" avro:"disk_percent"`
+	Temp        *float64 `json:"temp_c" avro:"temp_c"`
+}
+
+var metricsSchema avro.Schema
+
+func init() {
+	schemaStr := `{
+		"type": "record",
+		"name": "Metrics",
+		"namespace": "com.example",
+		"fields": [
+			{"name": "timestamp", "type": "long"},
+			{"name": "cpu_percent", "type": "double"},
+			{"name": "ram_percent", "type": "double"},
+			{"name": "disk_percent", "type": "double"},
+			{"name": "temp_c", "type": ["null", "double"], "default": null}
+		]
+	}`
+	var err error
+	metricsSchema, err = avro.Parse(schemaStr)
+	if err != nil {
+		log.Fatalf("Error parsing avro schema: %v", err)
+	}
 }
 
 // getTemperature intenta obtener la temperatura de CPU desde múltiples fuentes.
@@ -125,9 +147,12 @@ func sendMetrics(rabbitURL string) {
 		Temp:        currentTemp,
 	}
 
-	body, err := json.Marshal(payload)
+	// Printear mensaje antes de serializar
+	fmt.Printf("[%s] Datos recolectados normales: %+v\n", time.Now().Format("2006-01-02 15:04:05"), payload)
+
+	body, err := avro.Marshal(metricsSchema, payload)
 	if err != nil {
-		log.Printf("Error al convertir a JSON: %v", err)
+		log.Printf("Error al serializar a Avro: %v", err)
 		return
 	}
 
@@ -156,14 +181,14 @@ func sendMetrics(rabbitURL string) {
 	defer cancel()
 
 	err = ch.PublishWithContext(ctx, "", q.Name, false, false, amqp091.Publishing{
-		ContentType: "application/json",
+		ContentType: "application/avro",
 		Body:        body,
 	})
 
 	if err != nil {
 		log.Printf("Error al enviar mensaje a RabbitMQ: %v", err)
 	} else {
-		fmt.Printf("[%s] Datos enviados con éxito: %s\n", time.Now().Format("2006-01-02 15:04:05"), string(body))
+		fmt.Printf("[%s] datos binarios enviados correctamente por RabbitMQ\n", time.Now().Format("2006-01-02 15:04:05"))
 	}
 }
 
