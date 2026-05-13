@@ -94,17 +94,27 @@ func getTemperatureViaPowerShell() *float64 {
 	return nil
 }
 
-func main() {
-	rabbitMQURL := flag.String("rabbitmq-url", "amqp://guest:guest@localhost:5672/", "RabbitMQ connection URL")
-	flag.Parse()
-
+func sendMetrics(rabbitURL string) {
 	// 1. Recolección de datos
-	c, _ := cpu.Percent(time.Second, false)
-	m, _ := mem.VirtualMemory()
-	d, _ := disk.Usage("/")
+	c, err := cpu.Percent(time.Second, false)
+	if err != nil {
+		log.Printf("Error obteniendo CPU: %v", err)
+		return
+	}
+
+	m, err := mem.VirtualMemory()
+	if err != nil {
+		log.Printf("Error obteniendo RAM: %v", err)
+		return
+	}
+
+	d, err := disk.Usage("/")
+	if err != nil {
+		log.Printf("Error obteniendo Disco: %v", err)
+		return
+	}
+
 	// Nota: La temperatura depende mucho del OS y hardware
-	// En muchos casos requiere permisos de admin. Intentamos sensores
-	// y, como fallback en Windows, consultamos WMI.
 	currentTemp := getTemperature()
 
 	payload := Metrics{
@@ -115,19 +125,32 @@ func main() {
 		Temp:        currentTemp,
 	}
 
-	body, _ := json.Marshal(payload)
-
-	// 2. Envío a RabbitMQ
-	conn, err := amqp091.Dial(*rabbitMQURL)
+	body, err := json.Marshal(payload)
 	if err != nil {
-		log.Fatalf("Error conectando a Rabbit: %v", err)
+		log.Printf("Error al convertir a JSON: %v", err)
+		return
+	}
+
+	// 2. Envío a RabbitMQ (se abre y cierra conexión para evitar "timeouts" por conexión inactiva en 5 min)
+	conn, err := amqp091.Dial(rabbitURL)
+	if err != nil {
+		log.Printf("Error conectando a RabbitMQ: %v", err)
+		return
 	}
 	defer conn.Close()
 
-	ch, _ := conn.Channel()
+	ch, err := conn.Channel()
+	if err != nil {
+		log.Printf("Error abriendo canal: %v", err)
+		return
+	}
 	defer ch.Close()
 
-	q, _ := ch.QueueDeclare("it_metrics", false, false, false, false, nil)
+	q, err := ch.QueueDeclare("it_metrics", false, false, false, false, nil)
+	if err != nil {
+		log.Printf("Error declarando cola: %v", err)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -138,8 +161,29 @@ func main() {
 	})
 
 	if err != nil {
-		fmt.Println("Error al enviar:", err)
+		log.Printf("Error al enviar mensaje a RabbitMQ: %v", err)
 	} else {
-		fmt.Printf("Datos enviados con éxito: %s\n", string(body))
+		fmt.Printf("[%s] Datos enviados con éxito: %s\n", time.Now().Format("2006-01-02 15:04:05"), string(body))
+	}
+}
+
+func main() {
+	rabbitMQURL := flag.String("rabbitmq-url", "amqp://guest:guest@localhost:5672/", "RabbitMQ connection URL")
+	flag.Parse()
+
+	fmt.Println("Iniciando servicio de recolección métricas en segundo plano...")
+	fmt.Println("Se enviarán métricas a RabbitMQ cada 5 minutos.")
+	fmt.Println("Para detener el servicio, mata o finaliza el proceso desde el 'Administrador de Tareas'.")
+
+	// Enviar primer lote de métricas de inmediato
+	sendMetrics(*rabbitMQURL)
+
+	// Crear ticker para intervalos de 5 minutos
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	// Ciclo 'infinito' bloqueante (el proceso principal nunca terminará a menos que se mate)
+	for range ticker.C {
+		sendMetrics(*rabbitMQURL)
 	}
 }
