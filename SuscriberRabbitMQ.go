@@ -24,9 +24,9 @@ type Metrics struct {
 	CPUPercent  float64  `json:"cpu_percent" avro:"cpu_percent"`
 	CPUModel    string   `json:"cpu_model" avro:"cpu_model"`
 	RAMPercent  float64  `json:"ram_percent" avro:"ram_percent"`
-	RAMTotal    uint64   `json:"ram_total" avro:"ram_total"`
+	RAMTotal    int64    `json:"ram_total" avro:"ram_total"`
 	DiskPercent float64  `json:"disk_percent" avro:"disk_percent"`
-	DiskTotal   uint64   `json:"disk_total" avro:"disk_total"`
+	DiskTotal   int64    `json:"disk_total" avro:"disk_total"`
 	Temp        *float64 `json:"temp_c" avro:"temp_c"`
 }
 
