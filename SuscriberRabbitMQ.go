@@ -22,8 +22,11 @@ import (
 type Metrics struct {
 	Timestamp   int64    `json:"timestamp" avro:"timestamp"`
 	CPUPercent  float64  `json:"cpu_percent" avro:"cpu_percent"`
+	CPUModel    string   `json:"cpu_model" avro:"cpu_model"`
 	RAMPercent  float64  `json:"ram_percent" avro:"ram_percent"`
+	RAMTotal    uint64   `json:"ram_total" avro:"ram_total"`
 	DiskPercent float64  `json:"disk_percent" avro:"disk_percent"`
+	DiskTotal   uint64   `json:"disk_total" avro:"disk_total"`
 	Temp        *float64 `json:"temp_c" avro:"temp_c"`
 }
 
@@ -37,8 +40,11 @@ func init() {
 		"fields": [
 			{"name": "timestamp", "type": "long"},
 			{"name": "cpu_percent", "type": "double"},
+			{"name": "cpu_model", "type": "string"},
 			{"name": "ram_percent", "type": "double"},
+			{"name": "ram_total", "type": "long"},
 			{"name": "disk_percent", "type": "double"},
+			{"name": "disk_total", "type": "long"},
 			{"name": "temp_c", "type": ["null", "double"], "default": null}
 		]
 	}`
@@ -124,6 +130,14 @@ func sendMetrics(rabbitURL string) {
 		return
 	}
 
+	cpuInfo, err := cpu.Info()
+	var cpuModel string
+	if err != nil || len(cpuInfo) == 0 {
+		cpuModel = "Unknown"
+	} else {
+		cpuModel = cpuInfo[0].ModelName
+	}
+
 	m, err := mem.VirtualMemory()
 	if err != nil {
 		log.Printf("Error obteniendo RAM: %v", err)
@@ -142,8 +156,11 @@ func sendMetrics(rabbitURL string) {
 	payload := Metrics{
 		Timestamp:   time.Now().Unix(),
 		CPUPercent:  c[0],
+		CPUModel:    cpuModel,
 		RAMPercent:  m.UsedPercent,
+		RAMTotal:    m.Total,
 		DiskPercent: d.UsedPercent,
+		DiskTotal:   d.Total,
 		Temp:        currentTemp,
 	}
 
