@@ -38,7 +38,7 @@ jobs:
 
       - name: Build for Windows
         run: |
-          GOOS=windows GOARCH=amd64 go build -o SuscriberRabbitMQ.exe SuscriberRabbitMQ.go
+          GOOS=windows GOARCH=amd64 go build -o SuscriberRabbitMQ.exe .
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
