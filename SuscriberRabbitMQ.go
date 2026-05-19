@@ -19,49 +19,15 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
-type Metrics struct {
-	Timestamp   int64    `json:"timestamp" avro:"timestamp"`
-	CPUPercent  float64  `json:"cpu_percent" avro:"cpu_percent"`
-	CPUModel    string   `json:"cpu_model" avro:"cpu_model"`
-	RAMPercent  float64  `json:"ram_percent" avro:"ram_percent"`
-	RAMTotal    int64    `json:"ram_total" avro:"ram_total"`
-	DiskPercent float64  `json:"disk_percent" avro:"disk_percent"`
-	DiskTotal   int64    `json:"disk_total" avro:"disk_total"`
-	Temp        *float64 `json:"temp_c" avro:"temp_c"`
-}
-
-var metricsSchema avro.Schema
-
-func init() {
-	schemaStr := `{
-		"type": "record",
-		"name": "Metrics",
-		"namespace": "com.example",
-		"fields": [
-			{"name": "timestamp", "type": "long"},
-			{"name": "cpu_percent", "type": "double"},
-			{"name": "cpu_model", "type": "string"},
-			{"name": "ram_percent", "type": "double"},
-			{"name": "ram_total", "type": "long"},
-			{"name": "disk_percent", "type": "double"},
-			{"name": "disk_total", "type": "long"},
-			{"name": "temp_c", "type": ["null", "double"], "default": null}
-		]
-	}`
-	var err error
-	metricsSchema, err = avro.Parse(schemaStr)
-	if err != nil {
-		log.Fatalf("Error parsing avro schema: %v", err)
-	}
-}
-
 // getTemperature intenta obtener la temperatura de CPU desde múltiples fuentes.
 func getTemperature() *float64 {
 	// Try gopsutil sensors
 	t, _ := host.SensorsTemperatures()
 	if len(t) > 0 {
 		v := t[0].Temperature
-		return &v
+		if v > -50 && v < 150 { // Validar rango realista
+			return &v
+		}
 	}
 
 	// En Windows, intentamos PowerShell + WMI
@@ -81,8 +47,7 @@ func getTemperatureViaPowerShell() *float64 {
 	cmd := exec.Command("powershell", "-NoProfile", "-Command", psCmd)
 	output, err := cmd.Output()
 	if err == nil && len(strings.TrimSpace(string(output))) > 0 {
-		val, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
-		if err == nil {
+		if val, parseErr := strconv.ParseFloat(strings.TrimSpace(string(output)), 64); parseErr == nil {
 			// Convertir décimas de Kelvin a Celsius
 			tempC := val/10.0 - 273.15
 			if tempC > -50 && tempC < 150 { // Rango realista
@@ -96,8 +61,7 @@ func getTemperatureViaPowerShell() *float64 {
 	cmd = exec.Command("powershell", "-NoProfile", "-Command", psCmd)
 	output, err = cmd.Output()
 	if err == nil && len(strings.TrimSpace(string(output))) > 0 {
-		val, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
-		if err == nil && val > -50 && val < 150 {
+		if val, parseErr := strconv.ParseFloat(strings.TrimSpace(string(output)), 64); parseErr == nil && val > -50 && val < 150 {
 			return &val
 		}
 	}
@@ -107,8 +71,7 @@ func getTemperatureViaPowerShell() *float64 {
 	cmd = exec.Command("powershell", "-NoProfile", "-Command", psCmd)
 	output, err = cmd.Output()
 	if err == nil && len(strings.TrimSpace(string(output))) > 0 {
-		val, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
-		if err == nil {
+		if val, parseErr := strconv.ParseFloat(strings.TrimSpace(string(output)), 64); parseErr == nil {
 			// Si el valor es muy grande, asumimos que está en décimas
 			if val > 1000 {
 				val = val / 10.0
@@ -158,9 +121,9 @@ func sendMetrics(rabbitURL string) {
 		CPUPercent:  c[0],
 		CPUModel:    cpuModel,
 		RAMPercent:  m.UsedPercent,
-		RAMTotal:    m.Total,
+		RAMTotal:    int64(m.Total),
 		DiskPercent: d.UsedPercent,
-		DiskTotal:   d.Total,
+		DiskTotal:   int64(d.Total),
 		Temp:        currentTemp,
 	}
 
@@ -209,7 +172,7 @@ func sendMetrics(rabbitURL string) {
 	}
 }
 
-func main() {
+func runPublisher() {
 	rabbitMQURL := flag.String("rabbitmq-url", "amqp://guest:guest@localhost:5672/", "RabbitMQ connection URL")
 	flag.Parse()
 
@@ -228,4 +191,8 @@ func main() {
 	for range ticker.C {
 		sendMetrics(*rabbitMQURL)
 	}
+}
+
+func main() {
+	runPublisher()
 }

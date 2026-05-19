@@ -9,37 +9,7 @@ import (
 	"github.com/rabbitmq/amqp091-go"
 )
 
-type Metrics struct {
-	Timestamp   int64    `avro:"timestamp"`
-	CPUPercent  float64  `avro:"cpu_percent"`
-	RAMPercent  float64  `avro:"ram_percent"`
-	DiskPercent float64  `avro:"disk_percent"`
-	Temp        *float64 `avro:"temp_c"`
-}
-
-var metricsSchema avro.Schema
-
-func init() {
-	schemaStr := `{
-		"type": "record",
-		"name": "Metrics",
-		"namespace": "com.example",
-		"fields": [
-			{"name": "timestamp", "type": "long"},
-			{"name": "cpu_percent", "type": "double"},
-			{"name": "ram_percent", "type": "double"},
-			{"name": "disk_percent", "type": "double"},
-			{"name": "temp_c", "type": ["null", "double"], "default": null}
-		]
-	}`
-	var err error
-	metricsSchema, err = avro.Parse(schemaStr)
-	if err != nil {
-		log.Fatalf("Error parsing avro schema: %v", err)
-	}
-}
-
-func main() {
+func runConsumer() {
 	rabbitMQURL := flag.String("rabbitmq-url", "amqp://guest:guest@localhost:5672/", "RabbitMQ connection URL")
 	flag.Parse()
 
